@@ -16,11 +16,11 @@ public class PlayerController : MonoBehaviour
 
     [Header("Base Movement")]
     public float walkAcceleration = 0.15f;
-    public float walkSpeed = 2f;
+    public float walkSpeed = 3f;
     public float runAcceleration = 0.25f;
-    public float runSpeed = 4f;
+    public float runSpeed = 6f;
     public float sprintAcceleration = 0.5f;
-    public float sprintSpeed = 7f;
+    public float sprintSpeed = 9f;
     public float drag = 0.1f;
     public float gravity = 25f;
     public float jumpSpeed = 1.0f;
@@ -64,12 +64,15 @@ public class PlayerController : MonoBehaviour
 
     private void UpdateMovementState()
     {
-        bool isMovementInput = _playerLocomotionInput.MovementInput != Vector2.zero;
-        bool isMovingLaterally = IsMovingLaterally();
-        bool isSprinting = _playerLocomotionInput.SprintToggleOn && isMovingLaterally;
+        bool canRun = CanRun();
+        bool isMovementInput = _playerLocomotionInput.MovementInput != Vector2.zero;                // order
+        bool isMovingLaterally = IsMovingLaterally();                                               // matters
+        bool isSprinting = _playerLocomotionInput.SprintToggleOn && isMovingLaterally;              // order
+        bool isWalking =  isMovingLaterally && (!canRun || _playerLocomotionInput.WalkToggleOn);    // matters
         bool isGrounded = IsGrounded();
 
-        PlayerMovementState lateralState = isSprinting ? PlayerMovementState.Sprinting :
+        PlayerMovementState lateralState = isWalking ? PlayerMovementState.Walking :
+                                           isSprinting ? PlayerMovementState.Sprinting :
                                            isMovingLaterally || isMovementInput ? PlayerMovementState.Running : PlayerMovementState.Idling;
 
         _playerState.SetPlayerMovementState(lateralState);
@@ -106,9 +109,13 @@ public class PlayerController : MonoBehaviour
         // Create quick references for current state
         bool isSprinting = _playerState.CurrentPlayerMovementState == PlayerMovementState.Sprinting;
         bool isGrounded = _playerState.InGroundedState();
+        bool isWalking = _playerState.CurrentPlayerMovementState == PlayerMovementState.Walking;
 
-        float lateralAcceleration = isSprinting ? sprintAcceleration : runAcceleration;
-        float clampLateralMagnitude = isSprinting ? sprintSpeed : runSpeed;
+        float lateralAcceleration = isWalking ? walkAcceleration :
+                                    isSprinting ? sprintAcceleration : runAcceleration;
+
+        float clampLateralMagnitude = isWalking ? walkSpeed :
+                                      isSprinting ? sprintSpeed : runSpeed;
 
         // State dependent acceleration and speed
         Vector3 cameraForwardXZ = new Vector3(_playerCamera.transform.forward.x, 0f, _playerCamera.transform.forward.z).normalized;
@@ -180,7 +187,7 @@ public class PlayerController : MonoBehaviour
         if (_isRotatingClockwise && RotationMismatch > 0f ||
             !_isRotatingClockwise && RotationMismatch < 0f)
         {
-            RotatePlayerToTarget();       
+            RotatePlayerToTarget();
         }
     }
 
@@ -202,6 +209,12 @@ public class PlayerController : MonoBehaviour
     private bool IsGrounded()
     {
         return _characterController.isGrounded;
+    }
+
+    private bool CanRun()
+    {
+        // This means player is moving diagonally at 45 degrees or forward, if so, we can run
+        return _playerLocomotionInput.MovementInput.y >= Mathf.Abs(_playerLocomotionInput.MovementInput.x);    
     }
     #endregion
 }
