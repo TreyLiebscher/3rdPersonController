@@ -21,6 +21,7 @@ public class PlayerController : MonoBehaviour
     public float runSpeed = 6f;
     public float sprintAcceleration = 0.5f;
     public float sprintSpeed = 9f;
+    public float inAirAcceleration = 0.15f;
     public float drag = 0.1f;
     public float gravity = 25f;
     public float jumpSpeed = 1.0f;
@@ -35,15 +36,23 @@ public class PlayerController : MonoBehaviour
     public float lookSenseV = 0.1f;
     public float lookLimitV = 89f;
 
+    [Header("Environment Details")]
+    [SerializeField] private LayerMask _groundLayers;
+
     private PlayerLocomotionInput _playerLocomotionInput;
     private PlayerState _playerState;
 
     private Vector2 _cameraRotation = Vector2.zero;
     private Vector2 _playerTargetRotation = Vector2.zero;
 
+    private bool _jumpedLastFrame = false;
     private bool _isRotatingClockwise = false;
     private float _rotatingToTargetTimer = 0f;
     private float _verticalVelocity = 0f;
+    private float _antiBump;
+    private float _stepOffset;
+
+    private PlayerMovementState _lastMovementState = PlayerMovementState.Falling;
     #endregion
 
     #region Startup
@@ -51,6 +60,9 @@ public class PlayerController : MonoBehaviour
     {
         _playerLocomotionInput = GetComponent<PlayerLocomotionInput>();
         _playerState = GetComponent<PlayerState>();
+
+        _antiBump = sprintSpeed;
+        _stepOffset = _characterController.stepOffset;
     }
     #endregion
 
@@ -64,11 +76,13 @@ public class PlayerController : MonoBehaviour
 
     private void UpdateMovementState()
     {
+        _lastMovementState = _playerState.CurrentPlayerMovementState;
+
         bool canRun = CanRun();
         bool isMovementInput = _playerLocomotionInput.MovementInput != Vector2.zero;                // order
         bool isMovingLaterally = IsMovingLaterally();                                               // matters
         bool isSprinting = _playerLocomotionInput.SprintToggleOn && isMovingLaterally;              // order
-        bool isWalking =  isMovingLaterally && (!canRun || _playerLocomotionInput.WalkToggleOn);    // matters
+        bool isWalking = isMovingLaterally && (!canRun || _playerLocomotionInput.WalkToggleOn);    // matters
         bool isGrounded = IsGrounded();
 
         PlayerMovementState lateralState = isWalking ? PlayerMovementState.Walking :
@@ -78,13 +92,21 @@ public class PlayerController : MonoBehaviour
         _playerState.SetPlayerMovementState(lateralState);
 
         // Control Airborn State
-        if (!isGrounded && _characterController.velocity.y >= 0f)
+        if ((!isGrounded || _jumpedLastFrame) && _characterController.velocity.y >= 0f)
         {
             _playerState.SetPlayerMovementState(PlayerMovementState.Jumping);
+            _jumpedLastFrame = false;
+            _characterController.stepOffset = 0f;
         }
-        else if (!isGrounded && _characterController.velocity.y < 0f)
+        else if ((!isGrounded || _jumpedLastFrame) && _characterController.velocity.y < 0f)
         {
             _playerState.SetPlayerMovementState(PlayerMovementState.Falling);
+            _jumpedLastFrame = false;
+            _characterController.stepOffset = 0f;
+        }
+        else
+        {
+            _characterController.stepOffset = _stepOffset;
         }
 
     }
@@ -93,14 +115,20 @@ public class PlayerController : MonoBehaviour
     {
         bool isGrounded = _playerState.InGroundedState();
 
-        if (isGrounded && _verticalVelocity < 0)
-            _verticalVelocity = 0f;
-
         _verticalVelocity -= gravity * Time.deltaTime;
+
+        if (isGrounded && _verticalVelocity < 0)
+            _verticalVelocity = -_antiBump;
 
         if (_playerLocomotionInput.JumpPressed && isGrounded)
         {
             _verticalVelocity += Mathf.Sqrt(jumpSpeed * 3 * gravity);
+            _jumpedLastFrame = true;
+        }
+
+        if (_playerState.IsStateGroundedState(_lastMovementState) && !isGrounded)
+        {
+            _verticalVelocity += _antiBump;
         }
     }
 
@@ -111,10 +139,12 @@ public class PlayerController : MonoBehaviour
         bool isGrounded = _playerState.InGroundedState();
         bool isWalking = _playerState.CurrentPlayerMovementState == PlayerMovementState.Walking;
 
-        float lateralAcceleration = isWalking ? walkAcceleration :
+        float lateralAcceleration = !isGrounded ? inAirAcceleration :
+                                    isWalking ? walkAcceleration :
                                     isSprinting ? sprintAcceleration : runAcceleration;
 
-        float clampLateralMagnitude = isWalking ? walkSpeed :
+        float clampLateralMagnitude = !isGrounded ? sprintSpeed :
+                                      isWalking ? walkSpeed :
                                       isSprinting ? sprintSpeed : runSpeed;
 
         // State dependent acceleration and speed
@@ -128,8 +158,9 @@ public class PlayerController : MonoBehaviour
         // Add drag to player
         Vector3 currentDrag = newVelocity.normalized * drag * Time.deltaTime;
         newVelocity = (newVelocity.magnitude > drag * Time.deltaTime) ? newVelocity - currentDrag : Vector3.zero;
-        newVelocity = Vector3.ClampMagnitude(newVelocity, clampLateralMagnitude);
+        newVelocity = Vector3.ClampMagnitude(new Vector3(newVelocity.x, 0f, newVelocity.z), clampLateralMagnitude);
         newVelocity.y += _verticalVelocity;
+        newVelocity = !isGrounded ? HandleSteepWalls(newVelocity) : newVelocity;
 
         // Move character (Unity suggests only calling this once per tick)
         _characterController.Move(newVelocity * Time.deltaTime);
@@ -196,6 +227,20 @@ public class PlayerController : MonoBehaviour
         Quaternion targetRotationX = Quaternion.Euler(0f, _playerTargetRotation.x, 0f);
         transform.rotation = Quaternion.Lerp(transform.rotation, targetRotationX, playerModelRotationSpeed * Time.deltaTime);
     }
+
+    private Vector3 HandleSteepWalls(Vector3 velocity)
+    {
+        Vector3 normal = CharacterControllerUtils.GetNormalWithSphereCast(_characterController, _groundLayers);
+        float angle = Vector3.Angle(normal, Vector3.up);
+        bool validAngle = angle <= _characterController.slopeLimit;
+
+        if (!validAngle && _verticalVelocity < 0f)
+        {
+            velocity = Vector3.ProjectOnPlane(velocity, normal);
+        }
+
+        return velocity;
+    }
     #endregion
 
     #region State Checks
@@ -208,13 +253,34 @@ public class PlayerController : MonoBehaviour
 
     private bool IsGrounded()
     {
-        return _characterController.isGrounded;
+        bool grounded = _playerState.InGroundedState() ? IsGroundedWhileGrounded() : IsGroundedWhileAirborn();
+
+        return grounded;
+    }
+
+    private bool IsGroundedWhileGrounded()
+    {
+        Vector3 spherePosition = new Vector3(transform.position.x, transform.position.y - _characterController.radius, transform.position.z);
+
+        bool grounded = Physics.CheckSphere(spherePosition, _characterController.radius, _groundLayers, QueryTriggerInteraction.Ignore);
+
+        return grounded;
+    }
+
+    private bool IsGroundedWhileAirborn()
+    {
+        Vector3 normal = CharacterControllerUtils.GetNormalWithSphereCast(_characterController, _groundLayers);
+        float angle = Vector3.Angle(normal, Vector3.up);
+        print(angle);
+        bool validAngle = angle <= _characterController.slopeLimit;
+
+        return _characterController.isGrounded && validAngle;
     }
 
     private bool CanRun()
     {
         // This means player is moving diagonally at 45 degrees or forward, if so, we can run
-        return _playerLocomotionInput.MovementInput.y >= Mathf.Abs(_playerLocomotionInput.MovementInput.x);    
+        return _playerLocomotionInput.MovementInput.y >= Mathf.Abs(_playerLocomotionInput.MovementInput.x);
     }
     #endregion
 }
