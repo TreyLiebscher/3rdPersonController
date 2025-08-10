@@ -24,6 +24,7 @@ public class PlayerController : MonoBehaviour
     public float inAirAcceleration = 0.15f;
     public float drag = 0.1f;
     public float gravity = 25f;
+    public float terminalVelocity = 50f;
     public float jumpSpeed = 1.0f;
     public float movingThreshold = 0.01f;
 
@@ -129,6 +130,13 @@ public class PlayerController : MonoBehaviour
         if (_playerState.IsStateGroundedState(_lastMovementState) && !isGrounded)
         {
             _verticalVelocity += _antiBump;
+        }
+
+        // Clamp at terminal velocity
+        if (Mathf.Abs(_verticalVelocity) > Mathf.Abs(terminalVelocity))
+        {
+            print("CLAMPED!");
+            _verticalVelocity = -1f * Mathf.Abs(terminalVelocity);
         }
     }
 
@@ -271,7 +279,7 @@ public class PlayerController : MonoBehaviour
     {
         Vector3 normal = CharacterControllerUtils.GetNormalWithSphereCast(_characterController, _groundLayers);
         float angle = Vector3.Angle(normal, Vector3.up);
-        print(angle);
+
         bool validAngle = angle <= _characterController.slopeLimit;
 
         return _characterController.isGrounded && validAngle;
@@ -280,7 +288,7 @@ public class PlayerController : MonoBehaviour
     private bool CanRun()
     {
         // This means player is moving diagonally at 45 degrees or forward, if so, we can run
-        return _playerLocomotionInput.MovementInput.y >= Mathf.Abs(_playerLocomotionInput.MovementInput.x);
+        return Mathf.Abs(_playerLocomotionInput.MovementInput.y) >= Mathf.Abs(_playerLocomotionInput.MovementInput.x);
     }
     #endregion
 }
