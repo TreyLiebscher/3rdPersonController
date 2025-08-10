@@ -13,22 +13,20 @@ namespace SantaVandal.FinalCharacterController
         #region Class Variables
         public Vector2 ScrollInput { get; private set; }
 
+        public Vector3 CamOffset { get; private set; }
+
         [SerializeField] public CinemachineThirdPersonFollow aimCam;
-        [SerializeField] private float _cameraZoomSpeed = 0.1f;
+        [SerializeField] private float _cameraZoomSpeed = 0.7f;
         [SerializeField] private float _cameraMinZoom = 1f;
         [SerializeField] private float _cameraMaxZoom = 5f;
 
         private CinemachineThirdPersonFollow _thirdPersonFollow;
-        // private CinemachineThirdPersonFollow _aimCam;
         #endregion
 
         #region Startup
         private void Awake()
         {
             _thirdPersonFollow = aimCam.GetComponent<CinemachineThirdPersonFollow>();
-            // _thirdPersonFollow = _virtualCamera.GetCinemachineComponent<CinemachineThirdPersonFollow>();
-            // aimCam = GetComponent<CinemachineThirdPersonFollow>();
-            // _thirdPersonFollow = GetComponent<CinemachineThirdPersonFollow>();
         }
         private void OnEnable()
         {
@@ -58,11 +56,23 @@ namespace SantaVandal.FinalCharacterController
         #region Update
         private void Update()
         {
-            _thirdPersonFollow.CameraDistance = Mathf.Clamp(_thirdPersonFollow.CameraDistance + ScrollInput.y, _cameraMinZoom, _cameraMaxZoom);
+
         }
 
         private void LateUpdate()
         {
+            _thirdPersonFollow.CameraDistance = Mathf.Clamp(_thirdPersonFollow.CameraDistance + ScrollInput.y, _cameraMinZoom, _cameraMaxZoom);
+
+            // find the optimal height for the camera after zoom
+            float kiwiDistance = _thirdPersonFollow.ShoulderOffset.y + ScrollInput.y / _cameraMaxZoom;
+            // move the camera to the side of the player when closer
+            float shoulderSideOffset = Math.Abs(kiwiDistance / 2);
+
+            if (_thirdPersonFollow.CameraDistance < _cameraMaxZoom && _thirdPersonFollow.CameraDistance > _cameraMinZoom)
+            {
+                _thirdPersonFollow.ShoulderOffset = new Vector3(shoulderSideOffset, kiwiDistance, _thirdPersonFollow.ShoulderOffset.z);
+            }
+
             ScrollInput = Vector2.zero;
         }
         #endregion
